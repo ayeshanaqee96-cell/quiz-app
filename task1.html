@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quiz App</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --seg-1: #0d6efd;
+      --seg-2: #198754;
+      --seg-3: #ffc107;
+      --seg-4: #dc3545;
+      --seg-5: #6f42c1;
+      --page-bg: #f6f7fb;
+      --card-bg: #ffffff;
+      --opt-bg: #f1f3f9;
+      --opt-border: #dde1ec;
+    }
+    [data-bs-theme="dark"] {
+      --page-bg: #14151a;
+      --card-bg: #1f2027;
+      --opt-bg: #2a2c35;
+      --opt-border: #3a3d49;
+    }
+    body { background: var(--page-bg); min-height: 100vh; transition: background .25s; }
+    .quiz-wrap { max-width: 680px; }
+    .quiz-card {
+      background: var(--card-bg);
+      border-radius: 14px;
+      padding: 1.5rem;
+      box-shadow: 0 2px 14px rgba(0,0,0,.08);
+    }
+    @media (max-width: 576px) { .quiz-card { padding: 1rem; } h2.q-text { font-size: 1.15rem; } }
+
+    /* Segmented multi-colored progress bar */
+    .seg-bar { display: flex; gap: 6px; }
+    .seg { flex: 1; height: 10px; border-radius: 6px; background: var(--opt-border); overflow: hidden; }
+    .seg > span { display: block; height: 100%; width: 0; transition: width .4s ease; }
+    .seg:nth-child(1) > span { background: var(--seg-1); }
+    .seg:nth-child(2) > span { background: var(--seg-2); }
+    .seg:nth-child(3) > span { background: var(--seg-3); }
+    .seg:nth-child(4) > span { background: var(--seg-4); }
+    .seg:nth-child(5) > span { background: var(--seg-5); }
+    .seg.done > span { width: 100%; }
+    .seg.active > span { width: 40%; }
+
+    .option-btn {
+      width: 100%;
+      text-align: left;
+      background: var(--opt-bg);
+      border: 1px solid var(--opt-border);
+      color: var(--bs-body-color);
+      border-radius: 10px;
+      padding: .8rem 1rem;
+      margin-bottom: .75rem;
+      transition: transform .1s, border-color .2s, background .2s;
+    }
+    .option-btn:hover:not(:disabled) { border-color: var(--seg-1); transform: translateX(3px); }
+    .option-btn:disabled { opacity: 1; cursor: default; }
+    .option-btn.correct { background: #198754; border-color: #198754; color: #fff; }
+    .option-btn.incorrect { background: #dc3545; border-color: #dc3545; color: #fff; }
+
+    .timer { font-weight: 700; color: var(--seg-2); }
+    .timer.warn { color: var(--seg-4); }
+    .score-ring {
+      width: 120px; height: 120px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.8rem; font-weight: 700;
+      border: 8px solid var(--seg-2);
+      margin: 0 auto 1rem;
+    }
+    .review-row.ok td:last-child { color: #198754; font-weight: 600; }
+    .review-row.bad td:last-child { color: #dc3545; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container quiz-wrap py-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h1 class="h4 mb-0">JS &amp; Web Quiz</h1>
+      <button id="themeToggle" class="btn btn-outline-secondary btn-sm" aria-label="Toggle dark or light mode">Dark mode</button>
+    </div>
+
+    <div class="seg-bar mb-3" id="segBar" aria-hidden="true"></div>
+
+    <!-- Start screen -->
+    <section id="startScreen" class="quiz-card text-center">
+      <h2 class="h4">Ready to test yourself?</h2>
+      <p class="text-secondary mb-1">5 random questions. 15 seconds each.</p>
+      <p class="text-secondary">Unanswered questions are marked wrong when time runs out.</p>
+      <button id="startBtn" class="btn btn-success btn-lg">Start quiz</button>
+    </section>
+
+    <!-- Question screen -->
+    <section id="quizScreen" class="quiz-card d-none">
+      <div class="d-flex justify-content-between mb-2">
+        <span id="qCount"></span>
+        <span id="timer" class="timer">Time left: 15s</span>
+      </div>
+      <h2 id="qText" class="h4 q-text mb-3"></h2>
+      <div id="options"></div>
+      <div class="text-center mt-2">
+        <button id="nextBtn" class="btn btn-success px-4" disabled>Next</button>
+      </div>
+    </section>
+
+    <!-- Result screen -->
+    <section id="resultScreen" class="quiz-card d-none">
+      <div class="text-center">
+        <div class="score-ring" id="scoreRing"></div>
+        <h2 class="h4" id="scoreText"></h2>
+        <p class="text-secondary" id="scoreMsg"></p>
+      </div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct</th><th>Status</th></tr></thead>
+          <tbody id="reviewBody"></tbody>
+        </table>
+      </div>
+      <div class="d-flex flex-wrap gap-2 justify-content-center">
+        <button id="pdfBtn" class="btn btn-primary">Download PDF</button>
+        <button id="restartBtn" class="btn btn-outline-secondary">Try again</button>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script>
+    // ---------- Question bank (10 questions, 5 picked at random each attempt) ----------
+    const BANK = [
+      { q: "Which method selects an element by its ID in JavaScript?", o: ["getElementById()", "querySelectorAll()", "getElementsByClassName()", "getElementByName()"], a: "getElementById()" },
+      { q: "Which attribute of the <link> tag gives the path of a CSS file?", o: ["rel", "href", "src", "type"], a: "href" },
+      { q: "Which array method removes the last element?", o: ["shift()", "pop()", "splice()", "slice()"], a: "pop()" },
+      { q: "Which array method adds an element to the end?", o: ["push()", "unshift()", "concat()", "map()"], a: "push()" },
+      { q: "Which CSS property changes the text color?", o: ["font-color", "text-style", "color", "foreground"], a: "color" },
+      { q: "Which keyword is NOT block-scoped in JavaScript?", o: ["let", "const", "var", "class"], a: "var" },
+      { q: "Which Bootstrap class creates a responsive fixed-width container?", o: [".container", ".wrapper", ".box", ".frame"], a: ".container" },
+      { q: "Which CSS property sets the background color?", o: ["bgcolor", "background-color", "color-bg", "fill"], a: "background-color" },
+      { q: "Which operator checks both value and type?", o: ["==", "=", "===", "!="], a: "===" },
+      { q: "Which HTML tag creates the largest heading?", o: ["<h6>", "<head>", "<h1>", "<title>"], a: "<h1>" }
+    ];
+    const TOTAL = 5, TIME = 15;
+
+    // ---------- Helpers ----------
+    const $ = (id) => document.getElementById(id);
+    const shuffle = (arr) => {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    };
+
+    let questions = [], current = 0, results = [], timerId = null, timeLeft = TIME, locked = false;
+
+    // ---------- Segmented bar ----------
+    const segBar = $("segBar");
+    for (let i = 0; i < TOTAL; i++) segBar.insertAdjacentHTML("beforeend", "<div class='seg'><span></span></div>");
+    function updateBar() {
+      [...segBar.children].forEach((seg, i) => {
+        seg.classList.toggle("done", i < current || (i === current && locked));
+        seg.classList.toggle("active", i === current && !locked);
+      });
+    }
+    function fillBar() {
+      [...segBar.children].forEach((s) => { s.classList.add("done"); s.classList.remove("active"); });
+    }
+
+    // ---------- Quiz flow ----------
+    function startQuiz() {
+      questions = shuffle(BANK).slice(0, TOTAL).map((x) => ({ ...x, o: shuffle(x.o) }));
+      current = 0; results = [];
+      $("startScreen").classList.add("d-none");
+      $("resultScreen").classList.add("d-none");
+      $("quizScreen").classList.remove("d-none");
+      showQuestion();
+    }
+
+    function showQuestion() {
+      locked = false;
+      const q = questions[current];
+      $("qCount").textContent = `Question ${current + 1} / ${TOTAL}`;
+      $("qText").textContent = q.q;
+      $("nextBtn").disabled = true;
+      $("nextBtn").textContent = current === TOTAL - 1 ? "Finish" : "Next";
+      const box = $("options");
+      box.innerHTML = "";
+      q.o.forEach((opt) => {
+        const b = document.createElement("button");
+        b.className = "option-btn";
+        b.textContent = opt;
+        b.addEventListener("click", () => answer(opt, b));
+        box.appendChild(b);
+      });
+      updateBar();
+      startTimer();
+    }
+
+    function startTimer() {
+      clearInterval(timerId);
+      timeLeft = TIME;
+      renderTimer();
+      timerId = setInterval(() => {
+        timeLeft--;
+        renderTimer();
+        if (timeLeft <= 0) { clearInterval(timerId); answer(null, null); }
+      }, 1000);
+    }
+    function renderTimer() {
+      const t = $("timer");
+      t.textContent = `Time left: ${timeLeft}s`;
+      t.classList.toggle("warn", timeLeft <= 5);
+    }
+
+    function answer(choice, btn) {
+      if (locked) return;
+      locked = true;
+      clearInterval(timerId);
+      const q = questions[current];
+      const correct = choice === q.a;
+      results.push({ q: q.q, your: choice === null ? "Not Answered" : choice, right: q.a, ok: correct });
+
+      [...$("options").children].forEach((b) => {
+        b.disabled = true;
+        if (b.textContent === q.a) b.classList.add("correct");
+      });
+      if (btn && !correct) btn.classList.add("incorrect");
+
+      $("nextBtn").disabled = false;
+      updateBar();
+    }
+
+    function next() {
+      if (current < TOTAL - 1) { current++; showQuestion(); }
+      else showResult();
+    }
+
+    // ---------- Result ----------
+    function showResult() {
+      clearInterval(timerId);
+      fillBar();
+      $("quizScreen").classList.add("d-none");
+      $("resultScreen").classList.remove("d-none");
+      const score = results.filter((r) => r.ok).length;
+      const pct = Math.round((score / TOTAL) * 100);
+      $("scoreRing").textContent = `${score}/${TOTAL}`;
+      $("scoreRing").style.borderColor = pct >= 60 ? "#198754" : "#dc3545";
+      $("scoreText").textContent = `You scored ${pct}%`;
+      $("scoreMsg").textContent = pct === 100 ? "Perfect score." : pct >= 60 ? "Good job. Review the missed ones below." : "Keep practicing and try again.";
+
+      const body = $("reviewBody");
+      body.innerHTML = "";
+      results.forEach((r, i) => {
+        const tr = document.createElement("tr");
+        tr.className = "review-row " + (r.ok ? "ok" : "bad");
+        [i + 1, r.q, r.your, r.right, r.ok ? "Correct" : "Incorrect"].forEach((v) => {
+          const td = document.createElement("td");
+          td.textContent = v;
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+    }
+
+    function downloadPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      const score = results.filter((r) => r.ok).length;
+      const pct = Math.round((score / TOTAL) * 100);
+      doc.setFontSize(18);
+      doc.text("Quiz Result", 14, 18);
+      doc.setFontSize(12);
+      doc.text(`Score: ${score} / ${TOTAL} (${pct}%)`, 14, 27);
+      doc.text(`Date: ${new Date().toLocaleString()}`, 14, 34);
+
+      doc.autoTable({
+        startY: 40,
+        head: [["#", "Question", "Your Answer", "Correct Answer", "Status"]],
+        body: results.map((r, i) => [i + 1, r.q, r.your, r.right, r.ok ? "Correct" : "Incorrect"]),
+        styles: { fontSize: 10, textColor: [30, 30, 30] },
+        headStyles: { fillColor: [60, 60, 70] },
+        columnStyles: { 0: { cellWidth: 10 }, 4: { cellWidth: 26 } },
+        didParseCell: (d) => {
+          if (d.section === "body" && d.column.index === 4) {
+            d.cell.styles.fillColor = d.cell.raw === "Correct" ? [25, 135, 84] : [220, 53, 69];
+            d.cell.styles.textColor = [255, 255, 255];
+          }
+        }
+      });
+      doc.save("Quiz_Result.pdf");
+    }
+
+    // ---------- Theme ----------
+    function setTheme(t) {
+      document.documentElement.setAttribute("data-bs-theme", t);
+      $("themeToggle").textContent = t === "dark" ? "Light mode" : "Dark mode";
+      try { localStorage.setItem("quiz-theme", t); } catch (e) {}
+    }
+    let saved = null;
+    try { saved = localStorage.getItem("quiz-theme"); } catch (e) {}
+    setTheme(saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+    $("themeToggle").addEventListener("click", () => {
+      setTheme(document.documentElement.getAttribute("data-bs-theme") === "dark" ? "light" : "dark");
+    });
+
+    // ---------- Events ----------
+    $("startBtn").addEventListener("click", startQuiz);
+    $("nextBtn").addEventListener("click", next);
+    $("pdfBtn").addEventListener("click", downloadPDF);
+    $("restartBtn").addEventListener("click", () => {
+      [...segBar.children].forEach((s) => s.classList.remove("done", "active"));
+      startQuiz();
+    });
+  </script>
+</body>
+</html>
